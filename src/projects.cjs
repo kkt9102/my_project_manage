@@ -13,6 +13,7 @@ const extensions = {
   dotnet: /\.(?:cs|fs|vb)$/i,
   python: /\.py$/i,
   go: /\.go$/i,
+  ruby: /\.rb$/i,
 };
 
 async function entries(dir) {
@@ -53,6 +54,42 @@ function str(value) {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, 200) : null;
 }
 
+async function rubyProject(folder, names, files) {
+  const sources = files.map(file => file.split(path.sep).join('/')).filter(file => extensions.ruby.test(file));
+  if (!sources.length) return null;
+
+  const gemfile = names.has('Gemfile') ? 'Gemfile' : names.has('gems.rb') ? 'gems.rb' : null;
+  const manifest = gemfile ? await read(folder, gemfile) : '';
+  const railsConfig = sources.includes('config/application.rb') ||
+    (sources.includes('config/environment.rb') && sources.includes('config/boot.rb'));
+  const railsSource = sources.some(file => file.startsWith('app/'));
+  if (railsSource && (railsConfig || /^[ \t]*gem(?:[ \t]+|\([ \t]*)['"]rails['"]/m.test(manifest))) {
+    return { type: 'Ruby on Rails', evidence: (railsConfig ? 'Rails 설정' : gemfile) + ' · Ruby 소스' };
+  }
+  const entry = sources.find(file => !file.includes('/') && !['gems.rb', 'config.rb', 'setup.rb'].includes(file)) ??
+    sources.find(file => /^(?:app|lib|src)\//.test(file));
+  if (!entry) return null;
+
+  const gemspecs = [...names].filter(name => name.endsWith('.gemspec'));
+  if (gemspecs.length === 1) {
+    const gemspec = await read(folder, gemspecs[0]);
+    const name = gemspec.match(/^[ \t]*\w+\.name[ \t]*=[ \t]*["']([^"'\r\n]+)["']/m)?.[1];
+    const literalVersion = gemspec.match(/^[ \t]*\w+\.version[ \t]*=[ \t]*["']([^"'\r\n]+)["']/m)?.[1];
+    let version = literalVersion;
+    if (!version && /^[ \t]*\w+\.version[ \t]*=[ \t]*(?:\w+::)*VERSION\b/m.test(gemspec)) {
+      const versionFiles = sources.filter(file => /^lib\/.+\/version\.rb$/i.test(file));
+      if (versionFiles.length === 1) {
+        const versionSource = await read(folder, versionFiles[0]);
+        version = versionSource.match(/^[ \t]*VERSION[ \t]*=[ \t]*["']([^"'\r\n]+)["']/m)?.[1];
+      }
+    }
+    return { type: 'Ruby', name, version, evidence: gemspecs[0] + ' · Ruby 소스', manifest: true };
+  }
+
+  const marker = gemfile ?? (names.has('Rakefile') ? 'Rakefile' : null);
+  return { type: 'Ruby', evidence: marker ? marker + ' · Ruby 소스' : entry, manifest: Boolean(marker) };
+}
+
 function gitHubKey(url) {
   const value = url.trim();
   const ssh = value.match(/^git@github\.com:([^/]+\/[^/]+)$/i);
@@ -91,12 +128,15 @@ async function inspect(dir) {
   const has = extension => files.some(file => extension.test(file) && !/(?:^|[\\/])(?:[^\\/]+\.(?:config|min|bundle|generated)\.[^.]+|[^\\/]+\.d\.ts)$/i.test(file));
   const make = (type, name, version, evidence) => ({ type, name: str(name) ?? path.basename(folder), version: str(version), evidence });
   const item = async () => {
+    const ruby = await rubyProject(folder, names, files);
+    if (ruby?.type === 'Ruby on Rails' || ruby?.manifest) return make(ruby.type, ruby.name, ruby.version, ruby.evidence);
     if (names.has('package.json') && has(extensions.web)) {
       try {
         const data = JSON.parse(await read(folder, 'package.json'));
         if (data && typeof data === 'object' && !Array.isArray(data)) {
           const deps = { ...data.dependencies, ...data.devDependencies };
-          const type = deps.next ? 'Next.js' : deps['react-native'] ? 'React Native' : deps.vue ? 'Vue' : deps.react ? 'React' : deps.electron ? 'Electron' : 'Node.js';
+          const type = Object.hasOwn(deps, '@nestjs/core') || names.has('nest-cli.json') ? 'NestJS'
+            : deps.next ? 'Next.js' : deps['react-native'] ? 'React Native' : deps.vue ? 'Vue' : deps.react ? 'React' : deps.electron ? 'Electron' : 'Node.js';
           return make(type, data.name, data.version, 'package.json · JS/TS 소스');
         }
       } catch (error) { if (!(error instanceof SyntaxError)) throw error; }
@@ -141,6 +181,7 @@ async function inspect(dir) {
     if (names.has('index.html') && (has(extensions.web) || files.some(file => /\.css$/i.test(file)))) {
       return make('정적 웹', null, null, 'index.html · CSS/JS 소스');
     }
+    if (ruby) return make(ruby.type, ruby.name, ruby.version, ruby.evidence);
     return null;
   };
   const detected = await item();
