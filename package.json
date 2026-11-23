@@ -1,0 +1,42 @@
+{
+  "name": "project-manage",
+  "version": "0.1.0",
+  "description": "Local and GitHub development project manager",
+  "author": "kkt9102",
+  "license": "MIT",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "lint": "node --check src/main.cjs && node --check src/projects.cjs && node --check src/preload.cjs && node --check src/ui.js",
+    "test": "node --test",
+    "build": "electron-builder --publish never"
+  },
+  "build": {
+    "appId": "io.github.kkt9102.projectmanage",
+    "productName": "ProjectManage",
+    "artifactName": "ProjectManage-${version}-${os}-${arch}.${ext}",
+    "files": [
+      "src/**/*",
+      "package.json",
+      "LICENSE",
+      "PRIVACY.md"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools",
+      "identity": null
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false
+    }
+  },
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0"
+  }
+}

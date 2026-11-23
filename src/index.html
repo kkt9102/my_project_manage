@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>ProjectManage</title>
+  <link rel="stylesheet" href="ui.css">
+  <script defer src="ui.js"></script>
+</head>
+<body>
+  <header class="window-header">
+    <div class="brand"><span class="brand-icon"><img src="folder.svg" alt=""></span><strong>ProjectManage</strong><span class="app-purpose">개발 프로젝트 관리</span></div>
+    <nav aria-label="프로젝트 종류" role="tablist">
+      <button type="button" role="tab" id="tab-local" aria-controls="view" aria-selected="true">로컬 프로젝트</button>
+      <button type="button" role="tab" id="tab-remote" aria-controls="view" aria-selected="false" tabindex="-1">GitHub 프로젝트</button>
+    </nav>
+  </header>
+  <main id="view" role="tabpanel" aria-labelledby="tab-local" tabindex="0"></main>
+  <div id="notice" class="notice" role="status" hidden></div>
+  <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+</body>
+</html>

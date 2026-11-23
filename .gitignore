@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.codex/
+.agents/
+.claude/
+.cursor/
+.github/copilot-instructions.md
+AGENTS.md
+develop.md
+.env*
+.DS_Store
