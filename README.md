@@ -8,11 +8,14 @@ PC에 등록한 개발 프로젝트와 GitHub 저장소를 한곳에서 찾는 W
 
 | 운영체제 | 설치 파일 |
 | --- | --- |
-| Windows x64 | `ProjectManage-*-win-x64.exe` |
+| Windows x64 설치형 | `ProjectManage-*-win-x64.exe` |
+| Windows x64 압축형 | `ProjectManage-*-win-x64.zip` |
 | macOS Apple Silicon | `ProjectManage-*-mac-arm64.dmg` |
 | macOS Intel | `ProjectManage-*-mac-x64.dmg` |
 
-현재 설치 파일에는 배포자 코드 서명이 적용되어 있지 않습니다. OS에서 배포자를 확인할 수 없다는 메시지가 표시될 수 있습니다. 릴리스의 `SHA256SUMS.txt`로 다운로드한 파일을 확인할 수 있습니다.
+Windows 압축형은 ZIP을 모두 풀고 `ProjectManage.exe`를 실행하면 됩니다. 설치형과 같은 Windows 사용자 앱 데이터 폴더에 목록을 저장합니다.
+
+현재 배포 파일에는 배포자 코드 서명이 적용되어 있지 않습니다. OS에서 배포자를 확인할 수 없다는 메시지가 표시될 수 있습니다. 릴리스의 `SHA256SUMS.txt`로 다운로드한 파일을 확인할 수 있습니다.
 
 ## 로컬 프로젝트
 
@@ -20,7 +23,7 @@ PC에 등록한 개발 프로젝트와 GitHub 저장소를 한곳에서 찾는 W
 2. 감지한 프로젝트의 이름, 종류, 버전을 확인하고 등록합니다.
 3. 목록에서 VS Code 또는 파일 탐색기로 프로젝트를 엽니다.
 
-JS/TS(Next.js, NestJS 등), Ruby, Ruby on Rails, Rust, Java/Kotlin, Android, Swift, .NET, Python, Go와 정적 웹을 감지합니다. 프로젝트 설정과 소스 구조를 확인하며 버전을 파일에서 확인할 수 없으면 `—`로 표시합니다. 상위 폴더를 고르면 바로 아래의 하위 프로젝트를 찾습니다.
+JS/TS(Next.js, NestJS, Vue 등), C/C++, .NET(C#, F#, VB.NET), Java/Kotlin(Spring Boot, Android 포함), Python(Django 포함), Ruby, Ruby on Rails, Rust, Swift, Go와 정적 웹을 감지합니다. 프로젝트 설정과 소스 구조를 확인하며 버전을 파일에서 확인할 수 없으면 `—`로 표시합니다. 상위 폴더를 고르면 바로 아래의 하위 프로젝트를 찾습니다.
 
 Git 상태와 브랜치를 보려면 Git이 설치되어 있어야 합니다. VS Code로 열려면 VS Code가 설치되어 있어야 합니다. 목록은 마지막 확인 결과를 표시하며 **새로고침**으로 갱신합니다. 앱을 닫으면 종료됩니다.
 

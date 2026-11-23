@@ -1,6 +1,6 @@
 {
   "name": "project-manage",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local and GitHub development project manager",
   "author": "kkt9102",
   "license": "MIT",
@@ -28,7 +28,10 @@
       "identity": null
     },
     "win": {
-      "target": "nsis"
+      "target": [
+        "nsis",
+        "zip"
+      ]
     },
     "nsis": {
       "oneClick": false,

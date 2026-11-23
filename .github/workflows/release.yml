@@ -36,10 +36,32 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build -- --${{ matrix.platform }} --${{ matrix.arch }}
+      - name: Verify Windows archive
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $archives = @(Get-ChildItem -Path dist -Filter 'ProjectManage-*-win-x64.zip')
+          if ($archives.Count -ne 1) { throw 'Expected one Windows ZIP archive.' }
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($archives[0].FullName)
+          try {
+            $executables = @($archive.Entries | Where-Object { $_.Name -eq 'ProjectManage.exe' })
+            $payloads = @($archive.Entries | Where-Object { $_.FullName -match '(^|[\\/])resources[\\/]app\.asar$' })
+            if ($executables.Count -ne 1 -or $payloads.Count -ne 1 -or $executables[0].Length -eq 0 -or $payloads[0].Length -eq 0) {
+              throw 'The Windows ZIP does not contain a runnable ProjectManage bundle.'
+            }
+          } finally {
+            $archive.Dispose()
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: ProjectManage-${{ matrix.platform }}-${{ matrix.arch }}
           path: dist/ProjectManage-*.${{ matrix.extension }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: matrix.platform == 'win'
+        with:
+          name: ProjectManage-win-x64-zip
+          path: dist/ProjectManage-*-win-x64.zip
           if-no-files-found: error
 
   publish:
@@ -64,5 +86,5 @@ jobs:
           else
             gh release create "$RELEASE_TAG" installers/* --verify-tag \
               --title "ProjectManage $RELEASE_TAG" \
-              --notes "Windows x64 및 macOS Apple Silicon·Intel용 설치 파일입니다. 현재 설치 파일에는 배포자 코드 서명이 적용되어 있지 않습니다."
+              --notes "Windows x64 설치 파일·무설치 ZIP 및 macOS Apple Silicon·Intel용 DMG를 제공합니다. 현재 배포 파일에는 배포자 코드 서명이 적용되어 있지 않습니다."
           fi

@@ -85,3 +85,63 @@ test('구형 Rails 레이아웃과 단독 Ruby 소스를 감지하고 설정 파
   assert.equal(rails.type, 'Ruby on Rails');
   assert.equal(rails.version, null);
 });
+
+test('CMake 프로젝트에서 C/C++와 이름·버전을 읽고 헤더나 빌드 산출물만 있으면 등록하지 않는다', async t => {
+  const dir = await fixture(t);
+  await fs.writeFile(path.join(dir, 'CMakeLists.txt'), '# project(fake VERSION 9.0)\nproject("Native Tool" VERSION 1.2.3 LANGUAGES C CXX)\n');
+  await fs.writeFile(path.join(dir, 'tool.h'), '');
+  await fs.mkdir(path.join(dir, 'build'));
+  await fs.writeFile(path.join(dir, 'build', 'build.cpp'), '');
+  assert.deepEqual((await discover(dir)).candidates, []);
+  await fs.writeFile(path.join(dir, 'tool.c'), 'int main(void) { return 0; }');
+  const { candidates: [c] } = await discover(dir);
+  assert.equal(c.type, 'C');
+  assert.equal(c.name, 'Native Tool');
+  assert.equal(c.version, '1.2.3');
+  await fs.writeFile(path.join(dir, 'helper.cpp'), '');
+  assert.equal((await discover(dir)).candidates[0].type, 'C / C++');
+});
+
+test('C# 프로젝트와 별도 빌드 설정이 없는 Java 프로젝트를 구분한다', async t => {
+  const dir = await fixture(t);
+  await fs.writeFile(path.join(dir, 'ConsoleTool.csproj'), '<Project><PropertyGroup><AssemblyName>Tool</AssemblyName><Version>0.8.0</Version></PropertyGroup></Project>');
+  await fs.writeFile(path.join(dir, 'Program.cs'), '');
+  const { candidates: [dotnet] } = await discover(dir);
+  assert.equal(dotnet.type, 'C# · .NET');
+  assert.equal(dotnet.name, 'Tool');
+  assert.equal(dotnet.version, '0.8.0');
+  await fs.rename(path.join(dir, 'ConsoleTool.csproj'), path.join(dir, 'backup.txt'));
+  await fs.writeFile(path.join(dir, 'Main.java'), '');
+  assert.equal((await discover(dir)).candidates[0].type, 'Java');
+});
+
+test('Maven과 Gradle의 Spring Boot를 구분하고 앱 버전을 읽는다', async t => {
+  const dir = await fixture(t);
+  await fs.writeFile(path.join(dir, 'App.java'), '');
+  const pom = path.join(dir, 'pom.xml');
+  await fs.writeFile(pom, '<project><parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.5.0</version></parent><artifactId>app</artifactId><version>1.0.0</version></project>');
+  const { candidates: [maven] } = await discover(dir);
+  assert.equal(maven.type, 'Spring Boot · Maven');
+  assert.equal(maven.name, 'app');
+  assert.equal(maven.version, '1.0.0');
+  await fs.rename(pom, path.join(dir, 'backup.xml'));
+  await fs.writeFile(path.join(dir, 'settings.gradle.kts'), 'rootProject.name = "app"');
+  await fs.writeFile(path.join(dir, 'build.gradle.kts'), 'plugins { id("org.springframework.boot") version "3.5.0" }\nversion = "1.0.0"');
+  const { candidates: [gradle] } = await discover(dir);
+  assert.equal(gradle.type, 'Spring Boot · Gradle');
+  assert.equal(gradle.version, '1.0.0');
+});
+
+test('Vue 컴포넌트와 Django 기본 구조를 package.json 없이 감지한다', async t => {
+  const dir = await fixture(t);
+  const django = path.join(dir, 'django-app');
+  const vue = path.join(dir, 'vue-app');
+  await fs.mkdir(path.join(django, 'config'), { recursive: true });
+  await fs.mkdir(vue);
+  await fs.writeFile(path.join(django, 'manage.py'), 'os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")\nfrom django.core.management import execute_from_command_line');
+  await fs.writeFile(path.join(django, 'config', 'settings.py'), '');
+  await fs.writeFile(path.join(vue, 'index.html'), '');
+  await fs.writeFile(path.join(vue, 'App.vue'), '<template><main>Hello</main></template>');
+  assert.equal((await discover(django)).candidates[0].type, 'Django');
+  assert.equal((await discover(vue)).candidates[0].type, 'Vue');
+});

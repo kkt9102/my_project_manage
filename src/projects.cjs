@@ -14,6 +14,8 @@ const extensions = {
   python: /\.py$/i,
   go: /\.go$/i,
   ruby: /\.rb$/i,
+  c: /\.c$/,
+  cpp: /\.(?:cc|cpp|cxx|c\+\+|ixx|cppm)$/i,
 };
 
 async function entries(dir) {
@@ -38,7 +40,7 @@ async function sources(dir, rootEntries) {
   async function walk(current, list, depth) {
     for (const entry of list) {
       if (entry.name.startsWith('.') || ignored.has(entry.name)) continue;
-      if (entry.isFile()) files.push(path.relative(dir, path.join(current, entry.name)));
+      if (entry.isFile()) files.push(path.relative(dir, path.join(current, entry.name)).split(path.sep).join('/'));
       if (entry.isDirectory() && depth > 0 && budget > 0) {
         budget--;
         const next = path.join(current, entry.name);
@@ -55,7 +57,7 @@ function str(value) {
 }
 
 async function rubyProject(folder, names, files) {
-  const sources = files.map(file => file.split(path.sep).join('/')).filter(file => extensions.ruby.test(file));
+  const sources = files.filter(file => extensions.ruby.test(file));
   if (!sources.length) return null;
 
   const gemfile = names.has('Gemfile') ? 'Gemfile' : names.has('gems.rb') ? 'gems.rb' : null;
@@ -88,6 +90,32 @@ async function rubyProject(folder, names, files) {
 
   const marker = gemfile ?? (names.has('Rakefile') ? 'Rakefile' : null);
   return { type: 'Ruby', evidence: marker ? marker + ' · Ruby 소스' : entry, manifest: Boolean(marker) };
+}
+
+async function nativeProject(folder, names, files) {
+  const visualStudio = [...names].find(name => /\.vcxproj$/i.test(name));
+  const manifest = ['CMakeLists.txt', 'meson.build', visualStudio, 'GNUmakefile', 'Makefile', 'makefile', 'configure.ac']
+    .find(name => names.has(name));
+  const sources = manifest ? files : files.filter(file => !file.includes('/') || file.startsWith('src/'));
+  const c = sources.some(file => extensions.c.test(file));
+  const cpp = sources.some(file => file.endsWith('.C') || extensions.cpp.test(file));
+  if (!c && !cpp) return null;
+
+  let name = visualStudio ? path.basename(visualStudio, path.extname(visualStudio)) : null;
+  let version;
+  if (manifest === 'CMakeLists.txt') {
+    const cmake = (await read(folder, manifest)).replace(/#\[(=*)\[[\s\S]*?\]\1\]|#[^\r\n]*/g, '');
+    const project = cmake.match(/^\s*project\s*\(\s*(?:"([^"$]+)"|([\w.+-]+))(?=[\s)])([^)]*)\)/im);
+    name = project?.[1] ?? project?.[2];
+    version = project?.[3].match(/\bVERSION\s+"?(\d+(?:\.\d+){0,3})"?(?=\s|$)/i)?.[1];
+  } else if (manifest === 'meson.build') {
+    const meson = (await read(folder, manifest)).replace(/^[ \t]*#[^\r\n]*/gm, '');
+    const project = meson.match(/^\s*project\s*\(\s*['"]([^'"]+)['"]([^)]*)\)/m);
+    name = project?.[1];
+    version = project?.[2].match(/\bversion\s*:\s*['"]([^'"]+)['"]/)?.[1];
+  }
+  const type = c && cpp ? 'C / C++' : cpp ? 'C++' : 'C';
+  return { type, name, version, evidence: [manifest, type + ' 소스'].filter(Boolean).join(' · '), manifest };
 }
 
 function gitHubKey(url) {
@@ -136,8 +164,8 @@ async function inspect(dir) {
         if (data && typeof data === 'object' && !Array.isArray(data)) {
           const deps = { ...data.dependencies, ...data.devDependencies };
           const type = Object.hasOwn(deps, '@nestjs/core') || names.has('nest-cli.json') ? 'NestJS'
-            : deps.next ? 'Next.js' : deps['react-native'] ? 'React Native' : deps.vue ? 'Vue' : deps.react ? 'React' : deps.electron ? 'Electron' : 'Node.js';
-          return make(type, data.name, data.version, 'package.json · JS/TS 소스');
+            : deps.next ? 'Next.js' : deps['react-native'] ? 'React Native' : deps.vue || has(/\.vue$/i) ? 'Vue' : deps.react ? 'React' : deps.electron ? 'Electron' : 'Node.js';
+          return make(type, data.name, data.version, 'package.json · ' + (type === 'Vue' ? 'Vue 소스' : 'JS/TS 소스'));
         }
       } catch (error) { if (!(error instanceof SyntaxError)) throw error; }
     }
@@ -148,15 +176,19 @@ async function inspect(dir) {
       return make('Rust', field('name'), field('version'), 'Cargo.toml · Rust 소스');
     }
     if (names.has('pom.xml') && has(extensions.jvm)) {
-      const pom = (await read(folder, 'pom.xml')).replace(/<!--[\s\S]*?-->|<(parent|dependencies|dependencyManagement|build|profiles|properties|reporting|pluginRepositories|repositories|distributionManagement)\b[^>]*>[\s\S]*?<\/\1>/g, '');
+      const manifest = (await read(folder, 'pom.xml')).replace(/<!--[\s\S]*?-->/g, '');
+      const spring = /<groupId>\s*org\.springframework\.boot\s*<\/groupId>/.test(manifest);
+      const pom = manifest.replace(/<(parent|dependencies|dependencyManagement|build|profiles|properties|reporting|pluginRepositories|repositories|distributionManagement)\b[^>]*>[\s\S]*?<\/\1>/g, '');
       const tag = key => pom.match(new RegExp('<' + key + '>\\s*([^<$]+?)\\s*</' + key + '>'))?.[1];
-      return make('Java · Maven', tag('artifactId'), tag('version'), 'pom.xml · JVM 소스');
+      return make(spring ? 'Spring Boot · Maven' : 'Java · Maven', tag('artifactId'), tag('version'), 'pom.xml · JVM 소스');
     }
     const gradle = ['build.gradle.kts', 'build.gradle', 'settings.gradle.kts', 'settings.gradle'].find(name => names.has(name));
     if (gradle && has(extensions.jvm)) {
       const settings = await read(folder, names.has('settings.gradle.kts') ? 'settings.gradle.kts' : 'settings.gradle');
-      const build = await read(folder, gradle);
-      return make(/com\.android\.(?:application|library)/.test(build) || files.some(f => f.endsWith('AndroidManifest.xml')) ? 'Android · Gradle' : 'Java/Kotlin · Gradle',
+      const build = (await read(folder, gradle)).replace(/\/\*[\s\S]*?\*\/|^[ \t]*\/\/[^\r\n]*/gm, '');
+      const android = /com\.android\.(?:application|library)/.test(build) || files.some(f => f.endsWith('AndroidManifest.xml'));
+      const spring = /["']org\.springframework\.boot(?::spring-boot[^"']*)?["']/.test(build);
+      return make(android ? 'Android · Gradle' : spring ? 'Spring Boot · Gradle' : 'Java/Kotlin · Gradle',
         settings.match(/rootProject\.name\s*=\s*['"]([^'"]+)/)?.[1], build.match(/^\s*version\s*=\s*['"]([^'"]+)/m)?.[1], gradle + ' · JVM 소스');
     }
     if ((names.has('Package.swift') || list.some(entry => entry.isDirectory() && entry.name.endsWith('.xcodeproj'))) && has(extensions.swift)) {
@@ -165,22 +197,41 @@ async function inspect(dir) {
     }
     const dotnet = [...names].find(name => /\.(?:cs|fs|vb)proj$/i.test(name));
     if (dotnet && has(extensions.dotnet)) {
-      const xml = await read(folder, dotnet);
-      return make('.NET', path.basename(dotnet, path.extname(dotnet)), xml.match(/<Version>([^<$]+)<\/Version>/)?.[1], dotnet + ' · .NET 소스');
+      const xml = (await read(folder, dotnet)).replace(/<!--[\s\S]*?-->/g, '');
+      const type = ({ '.csproj': 'C#', '.fsproj': 'F#', '.vbproj': 'VB.NET' })[path.extname(dotnet).toLowerCase()];
+      const version = xml.match(/<Version>\s*([^<$]+?)\s*<\/Version>/)?.[1] ??
+        xml.match(/<VersionPrefix>\s*([\d.]+)\s*<\/VersionPrefix>/)?.[1];
+      const name = xml.match(/<AssemblyName>\s*([^<$]+?)\s*<\/AssemblyName>/)?.[1] ?? path.basename(dotnet, path.extname(dotnet));
+      return make(type + ' · .NET', name, version, dotnet + ' · ' + type + ' 소스');
     }
     if (names.has('go.mod') && has(extensions.go)) {
       const module = (await read(folder, 'go.mod')).match(/^module\s+(\S+)/m)?.[1];
       return make('Go', module?.split('/').at(-1), null, 'go.mod · Go 소스');
     }
     const python = ['pyproject.toml', 'requirements.txt', 'setup.py'].find(name => names.has(name));
-    if (python && has(extensions.python)) {
-      const manifest = await read(folder, python);
+    const manage = names.has('manage.py') && files.some(file => /(?:^|\/)settings(?:\.py|\/__init__\.py)$/.test(file))
+      ? await read(folder, 'manage.py') : '';
+    const settings = manage.match(/\bDJANGO_SETTINGS_MODULE['"]\s*,\s*['"]([\w.]+)['"]/)?.[1];
+    const django = settings && /\b(?:from|import)\s+django(?:\b|\.)/.test(manage);
+    if ((python || django) && has(extensions.python)) {
+      const manifest = python ? await read(folder, python) : '';
       const project = manifest.split(/^\s*\[(?:project|tool\.poetry)\]\s*$/m)[1]?.split(/^\s*\[/m)[0] ?? '';
-      return make('Python', project.match(/^\s*name\s*=\s*["']([^"']+)/m)?.[1], project.match(/^\s*version\s*=\s*["']([^"']+)/m)?.[1], python + ' · Python 소스');
+      const declaredDjango = /(?:^|["'])django(?=[ \t<>=!~@;\]"']|$)/im.test(manifest.replace(/^[ \t]*#[^\r\n]*/gm, ''));
+      return make(django || declaredDjango ? 'Django' : 'Python',
+        project.match(/^\s*name\s*=\s*["']([^"']+)/m)?.[1] ?? (django ? settings.split('.')[0] : null),
+        project.match(/^\s*version\s*=\s*["']([^"']+)/m)?.[1],
+        django ? 'manage.py · Django 설정' : python + ' · Python 소스');
     }
+    const native = await nativeProject(folder, names, files);
+    if (native?.manifest) return make(native.type, native.name, native.version, native.evidence);
+    const vueEntry = ['index.html', 'vue.config.js', 'vite.config.ts', 'vite.config.js'].find(name => names.has(name));
+    if (vueEntry && has(/\.vue$/i)) return make('Vue', null, null, vueEntry + ' · Vue 소스');
     if (names.has('index.html') && (has(extensions.web) || files.some(file => /\.css$/i.test(file)))) {
       return make('정적 웹', null, null, 'index.html · CSS/JS 소스');
     }
+    const java = files.find(file => /^(?:src\/.*|[^/]+)\.java$/i.test(file));
+    if (java) return make('Java', null, null, java);
+    if (native) return make(native.type, native.name, native.version, native.evidence);
     if (ruby) return make(ruby.type, ruby.name, ruby.version, ruby.evidence);
     return null;
   };
