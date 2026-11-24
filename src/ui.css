@@ -37,10 +37,14 @@ button.danger { color: #942e49; }
 nav button { background: #383269; color: #e4e0ff; border: 1px solid transparent; border-radius: 7px; }
 nav button:hover:not(:disabled) { background: #4b447f; }
 nav button[aria-selected="true"], nav button[aria-selected="true"]:hover { background: #dfdbff; color: #272351; }
+.window-tabs { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.settings-button { padding-inline: 15px; background: #383269; border-color: #5a528f; color: #e4e0ff; }
+.settings-button:hover:not(:disabled) { background: #4b447f; }
 main { padding: 26px 30px 32px; max-width: 1480px; margin: auto; }
 .heading { justify-content: space-between; align-items: flex-start; margin-bottom: 32px; }
 .heading p { margin-top: 6px; color: var(--muted); }
 .heading > button { margin-top: 4px; }
+.heading-actions { margin-top: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .toolbar { flex-wrap: wrap; }
 .search { display: flex; align-items: center; gap: 8px; width: min(300px, 100%); padding: 0 12px; }
 .search input { width: 100%; padding: 7px 0; outline-offset: 0; border: none; background: transparent; }
@@ -82,6 +86,11 @@ dialog > p { margin: 6px 0 18px; overflow-wrap: anywhere; }
 .warning-chip { background: #fff2e0; color: #8f4b12; }
 .device-code { letter-spacing: .12em; font-size: 22px; }
 .field input { width: 100%; }
+.settings-stack { margin-top: 15px; }
+.settings-version { display: flex; justify-content: space-between; padding: 10px 0; }
+.settings-doc { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.settings-doc summary { cursor: pointer; font-weight: 650; }
+.settings-text { margin-bottom: 0; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 dialog footer { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding-top: 16px; margin-top: 18px; border-top: 1px solid var(--line); }
 .notice { position: fixed; z-index: 1; bottom: 18px; right: 22px; max-width: min(440px, calc(100% - 44px)); border-radius: 9px; padding: 11px 16px; background: #272351; color: white; box-shadow: 0 4px 15px #25204735; }
 .notice.error { background: #8f4b12; }

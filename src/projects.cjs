@@ -2,9 +2,11 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+const { languagesOf, additionalProject } = require('./project-languages.cjs');
 const exec = promisify(execFile);
 
-const ignored = new Set(['node_modules', 'vendor', 'dist', 'build', 'out', 'target', 'coverage', 'bin', 'obj', 'Pods']);
+const ignored = new Set(['node_modules', 'vendor', 'dist', 'build', 'out', 'target', 'coverage', 'bin', 'obj', 'Pods', 'venv', '__pycache__', 'CMakeFiles', '_build']);
+const skip = name => name.startsWith('.') || ignored.has(name) || name.startsWith('cmake-build-');
 const extensions = {
   web: /\.(?:[cm]?[jt]sx?|vue|svelte|astro)$/i,
   rust: /\.rs$/i,
@@ -39,7 +41,7 @@ async function sources(dir, rootEntries) {
   let budget = 90;
   async function walk(current, list, depth) {
     for (const entry of list) {
-      if (entry.name.startsWith('.') || ignored.has(entry.name)) continue;
+      if (skip(entry.name)) continue;
       if (entry.isFile()) files.push(path.relative(dir, path.join(current, entry.name)).split(path.sep).join('/'));
       if (entry.isDirectory() && depth > 0 && budget > 0) {
         budget--;
@@ -133,6 +135,21 @@ function gitHubKey(url) {
   return /^[a-z\d_.-]+\/[a-z\d_.-]+$/i.test(key) ? key.toLowerCase() : null;
 }
 
+function remoteAddress(value) {
+  const github = gitHubKey(value);
+  if (github) return 'https://github.com/' + github;
+  const scp = value.match(/^[\w.-]+@([\w.-]+):([^?#\s]+)$/);
+  try {
+    const address = new URL(scp ? 'ssh://' + scp[1] + '/' + scp[2].replace(/^\//, '') : value);
+    if (!['https:', 'http:', 'ssh:', 'git:'].includes(address.protocol) || !address.hostname) return null;
+    address.username = '';
+    address.password = '';
+    address.search = '';
+    address.hash = '';
+    return address.href;
+  } catch { return null; }
+}
+
 async function git(dir) {
   const run = async (...args) => (await exec('git', ['-C', dir, ...args], { timeout: 2500, windowsHide: true, maxBuffer: 128 * 1024 })).stdout.trim();
   try {
@@ -142,9 +159,10 @@ async function git(dir) {
       run('remote', '-v').catch(() => ''),
     ]);
     const urls = remotes.split('\n').map(line => line.match(/^\S+\s+(.+?)\s+\((?:fetch|push)\)$/)?.[1]).filter(Boolean);
-    return { state: 'git', root, branch, remote: urls.length > 0, github: [...new Set(urls.map(gitHubKey).filter(Boolean))] };
+    return { state: 'git', root, branch, remote: urls.length > 0, github: [...new Set(urls.map(gitHubKey).filter(Boolean))],
+      urls: [...new Set(urls.map(remoteAddress).filter(Boolean))] };
   } catch (error) {
-    return { state: error.code === 'ENOENT' ? 'unavailable' : 'none', root: null, branch: null, remote: false, github: [] };
+    return { state: error.code === 'ENOENT' ? 'unavailable' : 'none', root: null, branch: null, remote: false, github: [], urls: [] };
   }
 }
 
@@ -153,18 +171,24 @@ async function inspect(dir) {
   const list = await entries(folder);
   const names = new Set(list.filter(item => item.isFile()).map(item => item.name));
   const files = await sources(folder, list);
+  const languages = languagesOf(files);
   const has = extension => files.some(file => extension.test(file) && !/(?:^|[\\/])(?:[^\\/]+\.(?:config|min|bundle|generated)\.[^.]+|[^\\/]+\.d\.ts)$/i.test(file));
   const make = (type, name, version, evidence) => ({ type, name: str(name) ?? path.basename(folder), version: str(version), evidence });
   const item = async () => {
     const ruby = await rubyProject(folder, names, files);
     if (ruby?.type === 'Ruby on Rails' || ruby?.manifest) return make(ruby.type, ruby.name, ruby.version, ruby.evidence);
+    const additional = await additionalProject(names, files, languages, filename => read(folder, filename));
+    if (additional?.manifest) return make(additional.type, additional.name, additional.version, additional.evidence);
     if (names.has('package.json') && has(extensions.web)) {
       try {
         const data = JSON.parse(await read(folder, 'package.json'));
         if (data && typeof data === 'object' && !Array.isArray(data)) {
           const deps = { ...data.dependencies, ...data.devDependencies };
           const type = Object.hasOwn(deps, '@nestjs/core') || names.has('nest-cli.json') ? 'NestJS'
-            : deps.next ? 'Next.js' : deps['react-native'] ? 'React Native' : deps.vue || has(/\.vue$/i) ? 'Vue' : deps.react ? 'React' : deps.electron ? 'Electron' : 'Node.js';
+            : deps.next ? 'Next.js' : deps.nuxt ? 'Nuxt' : deps['@angular/core'] ? 'Angular'
+              : deps['@sveltejs/kit'] ? 'SvelteKit' : deps.astro ? 'Astro' : deps['react-native'] ? 'React Native'
+                : deps.vue || has(/\.vue$/i) ? 'Vue' : deps.svelte ? 'Svelte' : deps.electron ? 'Electron'
+                  : deps.react ? 'React' : 'Node.js';
           return make(type, data.name, data.version, 'package.json · ' + (type === 'Vue' ? 'Vue 소스' : 'JS/TS 소스'));
         }
       } catch (error) { if (!(error instanceof SyntaxError)) throw error; }
@@ -216,8 +240,9 @@ async function inspect(dir) {
     if ((python || django) && has(extensions.python)) {
       const manifest = python ? await read(folder, python) : '';
       const project = manifest.split(/^\s*\[(?:project|tool\.poetry)\]\s*$/m)[1]?.split(/^\s*\[/m)[0] ?? '';
-      const declaredDjango = /(?:^|["'])django(?=[ \t<>=!~@;\]"']|$)/im.test(manifest.replace(/^[ \t]*#[^\r\n]*/gm, ''));
-      return make(django || declaredDjango ? 'Django' : 'Python',
+      const dependencies = manifest.replace(/^[ \t]*#[^\r\n]*/gm, '');
+      const framework = ['Django', 'FastAPI', 'Flask'].find(name => new RegExp('(?:^|["\x27])' + name + '(?=[ \\t<>=!~@;\\]"\\x27]|$)', 'im').test(dependencies));
+      return make(django ? 'Django' : framework ?? 'Python',
         project.match(/^\s*name\s*=\s*["']([^"']+)/m)?.[1] ?? (django ? settings.split('.')[0] : null),
         project.match(/^\s*version\s*=\s*["']([^"']+)/m)?.[1],
         django ? 'manage.py · Django 설정' : python + ' · Python 소스');
@@ -233,17 +258,18 @@ async function inspect(dir) {
     if (java) return make('Java', null, null, java);
     if (native) return make(native.type, native.name, native.version, native.evidence);
     if (ruby) return make(ruby.type, ruby.name, ruby.version, ruby.evidence);
+    if (additional) return make(additional.type, additional.name, additional.version, additional.evidence);
     return null;
   };
   const detected = await item();
-  return detected ? { ...detected, path: folder, git: await git(folder), checkedAt: new Date().toISOString() } : null;
+  return detected ? { ...detected, languages, path: folder, git: await git(folder), checkedAt: new Date().toISOString() } : null;
 }
 
 async function discover(dir) {
   const folder = await fs.realpath(dir);
   const root = await inspect(folder);
   if (root) return { folder, candidates: [root] };
-  const children = (await entries(folder)).filter(entry => entry.isDirectory() && !entry.name.startsWith('.') && !ignored.has(entry.name)).slice(0, 30);
+  const children = (await entries(folder)).filter(entry => entry.isDirectory() && !skip(entry.name)).slice(0, 30);
   const candidates = [];
   for (const child of children) {
     const result = await inspect(path.join(folder, child.name)).catch(() => null);
@@ -252,4 +278,4 @@ async function discover(dir) {
   return { folder, candidates };
 }
 
-module.exports = { discover, inspect, gitHubKey };
+module.exports = { discover, inspect, git, gitHubKey, remoteAddress };

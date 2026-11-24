@@ -180,8 +180,12 @@ function render() {
   const region = node('section', 'results');
   const action = remote ? button('저장소 동기화', async () => { update(await api.sync()); notify('GitHub 목록을 동기화했어요.'); })
     : button('+ 프로젝트 등록', () => registerFlow(), 'primary');
+  const exportButton = button('CSV 저장', async () => {
+    if (await api.exportCsv(remote ? 'github' : 'local')) notify('CSV 파일을 저장했어요.');
+  }, '', '이 탭의 전체 목록을 CSV로 저장');
   view.replaceChildren(projectHeading(remote ? 'GitHub 프로젝트' : '로컬 프로젝트',
-    remote ? '@' + data.account.login + ' 계정의 저장소를 보고 로컬 폴더와 연결하세요.' : '이 PC에 등록한 개발 프로젝트를 열고 Git 상태를 확인하세요.', action),
+    remote ? '@' + data.account.login + ' 계정의 저장소를 보고 로컬 폴더와 연결하세요.' : '이 PC에 등록한 개발 프로젝트를 열고 Git 상태를 확인하세요.',
+    group('div', 'actions heading-actions', exportButton, action)),
     toolbar(remote, region), region);
   renderResults(region, remote);
 }
@@ -197,6 +201,22 @@ function showDialog(title, description, content, actions) {
 
 function close() { modal.close(); }
 const cancel = () => button('취소', close);
+
+function settingDocument(title, body, className) {
+  return group('details', 'settings-doc', node('summary', '', title), node('pre', className, body));
+}
+
+async function settingsDialog() {
+  const { version, license, thirdPartyLicense, privacy } = await api.settings();
+  const policy = privacy.replace(/^# [^\r\n]+\r?\n+/, '').replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\[([^\]]+)\]\((https:\/\/[^)]+)\)/g, '$1 ($2)');
+  showDialog('설정', null, group('div', 'dialog-stack settings-stack',
+    group('div', 'settings-version', node('strong', '', 'ProjectManage 버전'), node('span', '', version)),
+    settingDocument('MIT 라이선스', license, 'settings-text'),
+    settingDocument('개인정보 처리방침', policy, 'settings-text'),
+    settingDocument('제3자 라이선스 · GitHub Linguist', thirdPartyLicense, 'settings-text')),
+  [button('닫기', close)]);
+}
 
 function registerFlow(repo) {
   const description = repo ? repo.slug + '에 연결할 개발 프로젝트 폴더를 선택하세요.' : '개발 소스가 들어 있는 프로젝트 폴더를 선택하세요.';
@@ -241,8 +261,10 @@ function registerFlow(repo) {
 
 function projectMenu(project) {
   const links = project.git.github.map(slug => button(slug + ' ↗', () => api.openRepo(slug), 'link'));
+  const languages = project.languages?.join(', ');
   showDialog(project.name, project.path,
-    group('div', 'dialog-stack', button('폴더 열기', () => api.open(project.path, 'folder')),
+    group('div', 'dialog-stack', ...(languages ? [node('p', 'muted', '감지한 언어 · ' + languages)] : []),
+      button('폴더 열기', () => api.open(project.path, 'folder')),
       button('이 프로젝트 다시 확인', async () => { update(await api.refresh(project.path)); close(); }), ...links),
     [button('닫기', close), button('목록에서 제거', async () => {
       update(await api.remove(project.path));
@@ -328,4 +350,5 @@ tabs.forEach((tab, index) => {
   });
 });
 
+document.querySelector('#window-tabs').append(button('설정', settingsDialog, 'settings-button'));
 api.snapshot().then(update).catch(() => notify('저장한 프로젝트 목록을 불러오지 못했어요.', true));

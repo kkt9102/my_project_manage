@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { discover, inspect } = require('./projects.cjs');
+const { localCsv, githubCsv } = require('./csv.cjs');
 
 app.setName('ProjectManage');
 if (!app.requestSingleInstanceLock()) app.exit(0);
@@ -53,7 +54,8 @@ async function repositories(token) {
     const { data, next } = await api('/user/repos?per_page=100&sort=updated&page=' + page, token);
     for (const repo of data) {
       if (/^[\w.-]+\/[\w.-]+$/.test(repo.full_name)) {
-        repos.push({ id: repo.id, name: repo.name, slug: repo.full_name, private: repo.private, language: repo.language });
+        const sizeKb = Number.isSafeInteger(repo.size) && repo.size >= 0 ? repo.size : null;
+        repos.push({ id: repo.id, name: repo.name, slug: repo.full_name, private: repo.private, language: repo.language, sizeKb });
       }
     }
     if (!next) return repos;
@@ -81,6 +83,28 @@ async function oauth(endpoint, fields) {
 
 const handlers = {
   snapshot,
+  async settings() {
+    const root = path.join(__dirname, '..');
+    const [license, thirdPartyLicense, privacy] = await Promise.all([
+      fs.readFile(path.join(root, 'LICENSE'), 'utf8'),
+      fs.readFile(path.join(__dirname, 'LINGUIST-LICENSE.txt'), 'utf8'),
+      fs.readFile(path.join(root, 'PRIVACY.md'), 'utf8'),
+    ]);
+    return { version: app.getVersion(), license, thirdPartyLicense, privacy };
+  },
+  async exportCsv(kind) {
+    if (kind !== 'local' && kind !== 'github') throw Error('내보낼 목록을 확인할 수 없어요.');
+    const { canceled, filePath } = await dialog.showSaveDialog(window, {
+      title: '프로젝트 목록 CSV 저장',
+      defaultPath: kind === 'github' ? 'github-projects.csv' : 'local-projects.csv',
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+    });
+    if (canceled || !filePath) return false;
+    const contents = kind === 'github' ? githubCsv(state.repos, state.projects) : await localCsv(state.projects);
+    try { await fs.writeFile(filePath, contents, 'utf8'); }
+    catch { throw Error('CSV 파일을 저장할 수 없어요. 저장 위치를 확인해 주세요.'); }
+    return true;
+  },
   async choose() {
     const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'], title: '개발 프로젝트 폴더 선택' });
     return result.canceled ? null : discover(result.filePaths[0]);

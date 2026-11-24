@@ -2,7 +2,7 @@ name: Desktop release
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', 'build/v*']
 
 permissions:
   contents: read
@@ -80,6 +80,22 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          if [[ "$RELEASE_TAG" == build/* ]]; then
+            build_ref=${RELEASE_TAG#build/}
+            version_tag=${build_ref%-*}
+            revision=${build_ref##*-}
+            [[ "$version_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && "$revision" =~ ^[0-9a-f]{7,40}$ ]]
+            prefix="ProjectManage-${version_tag#v}-"
+            for file in installers/"$prefix"*; do
+              name=${file##*/}
+              mv "$file" "installers/${prefix}build.${revision}-${name#"$prefix"}"
+            done
+            sums="SHA256SUMS-build.${revision}.txt"
+            files=(installers/*)
+            sha256sum "${files[@]}" | sed 's|  installers/|  |' > "installers/$sums"
+            gh release upload "$version_tag" installers/*
+            exit 0
+          fi
           sha256sum installers/* | sed 's|  installers/|  |' > installers/SHA256SUMS.txt
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" installers/* --clobber

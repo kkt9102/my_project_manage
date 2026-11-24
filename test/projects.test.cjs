@@ -145,3 +145,36 @@ test('Vue 컴포넌트와 Django 기본 구조를 package.json 없이 감지한�
   assert.equal((await discover(django)).candidates[0].type, 'Django');
   assert.equal((await discover(vue)).candidates[0].type, 'Vue');
 });
+
+test('Flutter 메타데이터와 설정이 없는 여러 언어의 소스를 감지한다', async t => {
+  const dir = await fixture(t);
+  await fs.writeFile(path.join(dir, 'pubspec.yaml'), 'name: flutter_app\nversion: 2.1.0+7\ndependencies:\n  flutter:\n    sdk: flutter\n');
+  await fs.writeFile(path.join(dir, 'mix.exs'), '');
+  assert.deepEqual((await discover(dir)).candidates, []);
+  await fs.mkdir(path.join(dir, 'lib'));
+  await fs.writeFile(path.join(dir, 'lib', 'main.dart'), 'void main() {}');
+  const { candidates: [app] } = await discover(dir);
+  assert.equal(app.type, 'Flutter');
+  assert.equal(app.name, 'flutter_app');
+  assert.equal(app.version, '2.1.0+7');
+  assert.deepEqual(app.languages, ['Dart']);
+
+  const src = await fixture(t);
+  await fs.writeFile(path.join(src, 'main.adb'), '');
+  await fs.writeFile(path.join(src, 'support.lua'), '');
+  const { candidates: [fallback] } = await discover(src);
+  assert.equal(fallback.type, 'Ada');
+  assert.deepEqual(fallback.languages, ['Ada', 'Lua']);
+});
+
+test('PHP 프레임워크는 웹 자산 패키지와 함께 있어도 감지한다', async t => {
+  const dir = await fixture(t);
+  await fs.writeFile(path.join(dir, 'composer.json'), '{"name":"example/app","require":{"laravel/framework":"^12.0"}}');
+  await fs.writeFile(path.join(dir, 'index.php'), '');
+  await fs.writeFile(path.join(dir, 'package.json'), '{"name":"assets"}');
+  await fs.writeFile(path.join(dir, 'assets.js'), '');
+  const { candidates: [app] } = await discover(dir);
+  assert.equal(app.type, 'Laravel');
+  assert.equal(app.name, 'example/app');
+  assert.deepEqual(app.languages, ['JavaScript', 'PHP']);
+});
