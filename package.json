@@ -8,7 +8,7 @@
   "main": "src/main.cjs",
   "scripts": {
     "start": "electron .",
-    "lint": "node --check src/main.cjs && node --check src/projects.cjs && node --check src/project-languages.cjs && node --check src/csv.cjs && node --check src/preload.cjs && node --check src/ui.js",
+    "lint": "node --check src/main.cjs && node --check src/projects.cjs && node --check src/project-languages.cjs && node --check src/csv.cjs && node --check src/updates.cjs && node --check src/preload.cjs && node --check src/ui.js",
     "test": "node --test",
     "build": "electron-builder --publish never"
   },

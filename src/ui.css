@@ -90,6 +90,11 @@ dialog > p { margin: 6px 0 18px; overflow-wrap: anywhere; }
 .settings-version { display: flex; justify-content: space-between; padding: 10px 0; }
 .settings-doc { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
 .settings-doc summary { cursor: pointer; font-weight: 650; }
+.update-panel { display: grid; gap: 10px; }
+.update-panel .actions { flex-wrap: wrap; }
+.update-panel p:empty { display: none; }
+.update-option { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.update-option input { accent-color: var(--accent); }
 .settings-text { margin-bottom: 0; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 dialog footer { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding-top: 16px; margin-top: 18px; border-top: 1px solid var(--line); }
 .notice { position: fixed; z-index: 1; bottom: 18px; right: 22px; max-width: min(440px, calc(100% - 44px)); border-radius: 9px; padding: 11px 16px; background: #272351; color: white; box-shadow: 0 4px 15px #25204735; }

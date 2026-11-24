@@ -9,4 +9,6 @@ ProjectManage는 사용자 PC에서 실행됩니다. 개발자 서버, 사용량
 
 **CSV 내보내기** 시 사용자가 고른 경로에 프로젝트 목록을 저장합니다. 내보낸 파일은 사용자가 직접 관리하고 삭제할 수 있습니다.
 
+**앱 업데이트**를 확인하거나 다운로드할 때 GitHub의 공개 릴리스에 요청을 보냅니다. 연결한 GitHub 계정의 인증 정보, 로컬 프로젝트 목록, 경로는 업데이트 요청에 포함하지 않습니다. 시작 시 확인은 설정에서 켜거나 끌 수 있습니다.
+
 GitHub의 데이터 처리는 [GitHub 개인정보 처리방침](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement)을 따릅니다. 앱의 개인정보 관련 문의는 [저장소 이슈](https://github.com/kkt9102/my_project_manage/issues)에서 받습니다.

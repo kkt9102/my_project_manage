@@ -35,7 +35,16 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
-      - run: npm run build -- --${{ matrix.platform }} --${{ matrix.arch }}
+      - name: Build desktop packages
+        shell: bash
+        run: |
+          options=()
+          if [[ "$GITHUB_REF_NAME" == build/* ]]; then
+            revision=${GITHUB_REF_NAME##*-}
+            [[ "$revision" =~ ^[0-9a-f]{7,40}$ ]]
+            options+=("--config.extraMetadata.buildRevision=build.$revision")
+          fi
+          npm run build -- --${{ matrix.platform }} --${{ matrix.arch }} "${options[@]}"
       - name: Verify Windows archive
         if: matrix.platform == 'win'
         shell: pwsh

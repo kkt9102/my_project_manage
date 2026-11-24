@@ -4,15 +4,22 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { discover, inspect } = require('./projects.cjs');
 const { localCsv, githubCsv } = require('./csv.cjs');
+const { releaseUpdate, downloadUpdate, verifyArchive } = require('./updates.cjs');
+const { buildRevision: buildRef } = require('../package.json');
+const buildRevision = typeof buildRef === 'string' ? buildRef.match(/^build\.([0-9a-f]{7,40})$/)?.[1] ?? null : null;
 
 app.setName('ProjectManage');
 if (!app.requestSingleInstanceLock()) app.exit(0);
-const initial = () => ({ projects: [], account: null, repos: [], syncedAt: null, secret: null });
+const initial = () => ({ projects: [], account: null, repos: [], syncedAt: null, secret: null, updateOnStart: false });
 let state = initial();
 let stateFile;
 let window;
 let queue = Promise.resolve();
 let device = null;
+let availableUpdate;
+let downloaded;
+let downloading = false;
+const updateReads = new Set(['checkUpdate', 'downloadUpdate', 'openUpdate']);
 
 async function save(next) {
   const tmp = stateFile + '.' + randomUUID() + '.tmp';
@@ -26,8 +33,18 @@ async function save(next) {
 }
 
 function snapshot() {
-  const { projects, account, repos, syncedAt } = state;
-  return { projects, account, repos, syncedAt };
+  const { projects, account, repos, syncedAt, updateOnStart } = state;
+  return { projects, account, repos, syncedAt, updateOnStart };
+}
+
+async function updatePackage() {
+  if (process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch)) {
+    return { suffix: 'mac-' + process.arch + '.dmg', action: 'dmg' };
+  }
+  if (process.platform !== 'win32' || process.arch !== 'x64') return null;
+  const uninstaller = path.join(path.dirname(app.getPath('exe')), 'Uninstall ProjectManage.exe');
+  const installed = await fs.lstat(uninstaller).then(info => info.isFile(), () => false);
+  return installed ? { suffix: 'win-x64.exe', action: 'installer' } : { suffix: 'win-x64.zip', action: 'zip' };
 }
 
 async function request(url, options) {
@@ -83,6 +100,43 @@ async function oauth(endpoint, fields) {
 
 const handlers = {
   snapshot,
+  async setUpdateOnStart(enabled) {
+    if (typeof enabled !== 'boolean') throw Error('업데이트 설정을 확인해 주세요.');
+    await save({ ...state, updateOnStart: enabled });
+  },
+  async checkUpdate() {
+    if (!app.isPackaged) return { status: 'development' };
+    const target = await updatePackage();
+    if (!target) return { status: 'unsupported' };
+    const asset = await releaseUpdate({ version: app.getVersion(), revision: buildRevision, suffix: target.suffix });
+    availableUpdate = asset ? { ...asset, action: target.action } : null;
+    if (!asset) return { status: 'current' };
+    return { status: 'available', version: asset.version, revision: asset.revision, action: target.action, size: asset.size,
+      downloaded: downloaded?.asset.url === asset.url };
+  },
+  async downloadUpdate() {
+    const asset = availableUpdate;
+    if (!asset || downloading) throw Error('업데이트 상태를 다시 확인해 주세요.');
+    downloading = true;
+    try {
+      const file = await downloadUpdate(asset, app.getPath('downloads'));
+      downloaded = { file, asset };
+    } finally { downloading = false; }
+  },
+  async openUpdate() {
+    const update = downloaded;
+    if (!update || update.asset.url !== availableUpdate?.url || !(await verifyArchive(update.asset, update.file))) {
+      downloaded = null;
+      throw Error('다운로드한 파일을 확인할 수 없어요. 다시 다운로드해 주세요.');
+    }
+    if (update.asset.action === 'zip') {
+      shell.showItemInFolder(update.file);
+      return;
+    }
+    const error = await shell.openPath(update.file);
+    if (error) throw Error('업데이트 파일을 열 수 없어요. 다운로드 폴더에서 열어 주세요.');
+    if (update.asset.action === 'installer') setImmediate(() => app.quit());
+  },
   async settings() {
     const root = path.join(__dirname, '..');
     const [license, thirdPartyLicense, privacy] = await Promise.all([
@@ -90,7 +144,7 @@ const handlers = {
       fs.readFile(path.join(__dirname, 'LINGUIST-LICENSE.txt'), 'utf8'),
       fs.readFile(path.join(root, 'PRIVACY.md'), 'utf8'),
     ]);
-    return { version: app.getVersion(), license, thirdPartyLicense, privacy };
+    return { version: app.getVersion(), buildRevision, license, thirdPartyLicense, privacy, updateOnStart: state.updateOnStart };
   },
   async exportCsv(kind) {
     if (kind !== 'local' && kind !== 'github') throw Error('내보낼 목록을 확인할 수 없어요.');
@@ -211,6 +265,7 @@ app.whenReady().then(async () => {
   for (const [name, handler] of Object.entries(handlers)) {
     ipcMain.handle('projects:' + name, (event, ...args) => {
       if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw Error('허용되지 않은 요청입니다.');
+      if (updateReads.has(name)) return handler(...args);
       const result = queue.then(() => handler(...args));
       queue = result.catch(() => {});
       return result;

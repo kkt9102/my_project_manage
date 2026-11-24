@@ -9,6 +9,7 @@ let query = '';
 let filters = ['', ''];
 let noticeTimer;
 let deviceSession = 0;
+let updateResult;
 
 function node(tag, className, content) {
   const item = document.createElement(tag);
@@ -206,12 +207,72 @@ function settingDocument(title, body, className) {
   return group('details', 'settings-doc', node('summary', '', title), node('pre', className, body));
 }
 
+function updaterPanel(updateOnStart) {
+  const enabled = node('input');
+  enabled.type = 'checkbox';
+  enabled.checked = updateOnStart;
+  enabled.addEventListener('change', async () => {
+    enabled.disabled = true;
+    try { await api.setUpdateOnStart(enabled.checked); }
+    catch { enabled.checked = !enabled.checked; notify('업데이트 설정을 저장하지 못했어요.', true); }
+    finally { enabled.disabled = false; }
+  });
+  const status = node('p', 'muted');
+  status.setAttribute('role', 'status');
+  const actions = node('div', 'actions');
+  const instructions = {
+    installer: '설치 파일을 실행하면 ProjectManage 창이 닫혀요. Windows 설치 화면에서 계속 진행하세요.',
+    dmg: 'DMG를 연 뒤 ProjectManage를 종료하고 응용 프로그램 폴더의 앱을 교체하세요.',
+    zip: '다운로드 폴더에서 ZIP을 모두 풀고 새 ProjectManage.exe를 실행하세요.',
+  };
+  const openLabels = { installer: '설치 파일 실행', dmg: 'DMG 열기', zip: 'ZIP 위치 열기' };
+  const check = button('업데이트 확인', async () => {
+    status.textContent = '업데이트 확인 중…';
+    try { updateResult = await api.checkUpdate(); }
+    finally { renderStatus(); }
+  });
+  function renderStatus() {
+    actions.replaceChildren(check);
+    const result = updateResult;
+    if (result?.status !== 'available') {
+      status.textContent = {
+        current: '현재 배포본이 최신이에요.',
+        development: '설치한 앱에서 업데이트를 확인할 수 있어요.',
+        unsupported: '이 운영체제용 업데이트를 확인할 수 없어요.',
+      }[result?.status] ?? '';
+      return;
+    }
+    const label = result.version + (result.revision ? ' · 빌드 ' + result.revision : '');
+    if (result.downloaded) {
+      status.textContent = instructions[result.action];
+      actions.append(button(openLabels[result.action], async () => {
+        try { await api.openUpdate(); }
+        catch (error) { result.downloaded = false; renderStatus(); throw error; }
+      }, 'primary'));
+      return;
+    }
+    const size = new Intl.NumberFormat('ko', { maximumFractionDigits: 1 }).format(result.size / 1024 / 1024);
+    status.textContent = label + ' · ' + size + ' MiB 다운로드 가능';
+    actions.append(button('업데이트 다운로드', async () => {
+      check.disabled = true;
+      status.textContent = '업데이트 파일을 다운로드하고 검증하는 중…';
+      try { await api.downloadUpdate(); result.downloaded = true; }
+      finally { check.disabled = false; renderStatus(); }
+    }, 'primary'));
+  }
+  renderStatus();
+  return group('section', 'settings-doc update-panel', node('strong', '', '앱 업데이트'),
+    group('label', 'update-option', enabled, node('span', '', '앱 시작 시 업데이트 확인')), status, actions);
+}
+
 async function settingsDialog() {
-  const { version, license, thirdPartyLicense, privacy } = await api.settings();
+  const { version, buildRevision, license, thirdPartyLicense, privacy, updateOnStart } = await api.settings();
   const policy = privacy.replace(/^# [^\r\n]+\r?\n+/, '').replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\[([^\]]+)\]\((https:\/\/[^)]+)\)/g, '$1 ($2)');
   showDialog('설정', null, group('div', 'dialog-stack settings-stack',
-    group('div', 'settings-version', node('strong', '', 'ProjectManage 버전'), node('span', '', version)),
+    group('div', 'settings-version', node('strong', '', 'ProjectManage 버전'),
+      node('span', '', version + (buildRevision ? ' · 빌드 ' + buildRevision : ''))),
+    updaterPanel(updateOnStart),
     settingDocument('MIT 라이선스', license, 'settings-text'),
     settingDocument('개인정보 처리방침', policy, 'settings-text'),
     settingDocument('제3자 라이선스 · GitHub Linguist', thirdPartyLicense, 'settings-text')),
@@ -351,4 +412,12 @@ tabs.forEach((tab, index) => {
 });
 
 document.querySelector('#window-tabs').append(button('설정', settingsDialog, 'settings-button'));
-api.snapshot().then(update).catch(() => notify('저장한 프로젝트 목록을 불러오지 못했어요.', true));
+api.snapshot().then(snapshot => {
+  update(snapshot);
+  if (snapshot.updateOnStart) {
+    void api.checkUpdate().then(result => {
+      updateResult = result;
+      if (result.status === 'available') notify('새 빌드가 있어요. 설정에서 업데이트할 수 있어요.');
+    }).catch(() => {});
+  }
+}).catch(() => notify('저장한 프로젝트 목록을 불러오지 못했어요.', true));
